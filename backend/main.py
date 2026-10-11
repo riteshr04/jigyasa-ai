@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -259,6 +260,15 @@ def _consume_daily_question(user: dict[str, object]) -> None:
         )
 
 
+def _refund_daily_question(user: dict[str, object]) -> None:
+    _supabase_request(
+        "/rest/v1/rpc/refund_ai_question_quota",
+        "POST",
+        {"p_user_id": user["id"]},
+        service=True,
+    )
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     document_ids: list[uuid.UUID] = Field(min_length=1, max_length=MAX_DOCUMENTS_PER_QUESTION)
@@ -464,40 +474,52 @@ def _generate_gemini_answer(question: str, documents: list[dict[str, object]]) -
         }],
         "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1200},
     }
-    request = UrlRequest(
-        endpoint,
-        data=json.dumps(request_body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=45) as response:
-            result = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        logger.warning("Gemini request failed with HTTP %s.", error.code)
-        if error.code in {401, 403}:
-            raise HTTPException(status_code=502, detail="Gemini rejected the Jigyasa API key. Check the key and its project access.") from error
-        if error.code == 429:
-            raise HTTPException(status_code=429, detail="Gemini's current quota is unavailable. Try again later or check the Jigyasa project limits.") from error
+    result: dict[str, object] | None = None
+    for attempt in range(2):
+        request = UrlRequest(
+            endpoint,
+            data=json.dumps(request_body).encode("utf-8"),
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+            method="POST",
+        )
         try:
-            error_body = json.loads(error.read().decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError, OSError):
-            error_body = {}
-        provider_message = error_body.get("error", {}).get("message", "")
-        if isinstance(provider_message, str):
-            provider_message = provider_message.replace(api_key, "[redacted]")[:300]
-        else:
-            provider_message = ""
-        detail = f"Gemini rejected the request (HTTP {error.code})."
-        if provider_message:
-            detail = f"{detail} {provider_message}"
-        raise HTTPException(status_code=502, detail=detail) from error
-    except (URLError, TimeoutError) as error:
-        logger.warning("Could not reach Gemini: %s", error)
-        raise HTTPException(status_code=502, detail="Could not reach Gemini. Check the network and try again.") from error
-    except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        logger.exception("Gemini returned an invalid response.")
-        raise HTTPException(status_code=502, detail="Gemini returned an unreadable response.") from error
+            with urlopen(request, timeout=45) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            break
+        except HTTPError as error:
+            if error.code == 503 and attempt == 0:
+                logger.info("Gemini is busy; retrying the request once.")
+                error.close()
+                time.sleep(1)
+                continue
+            logger.warning("Gemini request failed with HTTP %s.", error.code)
+            if error.code in {401, 403}:
+                raise HTTPException(status_code=502, detail="Gemini rejected the Jigyasa API key. Check the key and its project access.") from error
+            if error.code == 429:
+                raise HTTPException(status_code=429, detail="Gemini's current quota is unavailable. Try again later or check the Jigyasa project limits.") from error
+            if error.code == 503:
+                raise HTTPException(status_code=503, detail="Gemini is under high demand right now. Please wait a little and try again.") from error
+            try:
+                error_body = json.loads(error.read().decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+                error_body = {}
+            provider_message = error_body.get("error", {}).get("message", "")
+            if isinstance(provider_message, str):
+                provider_message = provider_message.replace(api_key, "[redacted]")[:300]
+            else:
+                provider_message = ""
+            detail = f"Gemini rejected the request (HTTP {error.code})."
+            if provider_message:
+                detail = f"{detail} {provider_message}"
+            raise HTTPException(status_code=502, detail=detail) from error
+        except (URLError, TimeoutError) as error:
+            logger.warning("Could not reach Gemini: %s", error)
+            raise HTTPException(status_code=502, detail="Could not reach Gemini. Check the network and try again.") from error
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            logger.exception("Gemini returned an invalid response.")
+            raise HTTPException(status_code=502, detail="Gemini returned an unreadable response.") from error
+    if result is None:
+        raise HTTPException(status_code=502, detail="Gemini did not return a response.")
 
     candidates = result.get("candidates", [])
     if not candidates:
@@ -751,7 +773,15 @@ def chat(
             if missing:
                 raise HTTPException(status_code=404, detail="One or more selected materials are no longer in the library.")
             documents = [record_by_id[document_id] for document_id in document_ids]
-    answer = _generate_gemini_answer(request.question.strip(), documents)
+    try:
+        answer = _generate_gemini_answer(request.question.strip(), documents)
+    except HTTPException:
+        if user is not None:
+            try:
+                _refund_daily_question(user)
+            except HTTPException:
+                logger.exception("Could not restore the daily question after a failed Gemini request.")
+        raise
     sources = [{"id": str(document["id"]), "name": str(document["name"])} for document in documents]
     return ChatResponse(answer=answer, sources=sources)
 

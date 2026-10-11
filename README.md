@@ -27,6 +27,8 @@ Hosted accounts use HttpOnly, HTTPS-only cookies. The browser cannot read the Su
 
 Each hosted account is limited to 25 documents, 100 MB of private study files, and 20 Gemini questions per UTC day. The question counter is updated atomically in Supabase so restarting the web service does not reset it. `JIGYASA_DAILY_AI_QUESTION_LIMIT` can be set to a value from 1 to 200 in Render.
 
+If Gemini returns a temporary high-demand (HTTP 503) response, Jigyasa retries once after a short pause. If Gemini still fails, the hosted question counter is refunded. Apply new SQL migrations in `supabase/migrations/` to the Supabase project before deploying backend changes.
+
 ## Gemini usage
 
 Gemini usage is governed by the current limits and billing status of the Google AI Studio project and selected model. Requests include only the selected materials' relevant extracted text. Larger documents or selected context can use more tokens. Check the active limits in [Google AI Studio](https://aistudio.google.com/rate-limit?timeRange=last-28-days); do not assume a fixed unlimited question count.

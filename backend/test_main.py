@@ -108,6 +108,45 @@ class StudyContextTests(unittest.TestCase):
         self.assertIn("Invalid request payload", context.exception.detail)
         self.assertNotIn("test-jigyasa-key", context.exception.detail)
 
+    def test_gemini_retries_once_after_service_overload(self):
+        from urllib.error import HTTPError
+
+        fake_response = MagicMock()
+        fake_response.__enter__.return_value.read.return_value = json.dumps({
+            "candidates": [{"content": {"parts": [{"text": "A cell is the basic unit of life."}]}}],
+        }).encode()
+        overload = HTTPError("https://example.invalid", 503, "Unavailable", {}, BytesIO(b""))
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-jigyasa-key"}),
+            patch("backend.main.urlopen", side_effect=[overload, fake_response]) as mocked_urlopen,
+            patch("backend.main.time.sleep") as mocked_sleep,
+        ):
+            answer = _generate_gemini_answer(
+                "What is a cell?",
+                [{"name": "notes.txt", "text": "A cell is the basic unit of life."}],
+            )
+        self.assertEqual(answer, "A cell is the basic unit of life.")
+        self.assertEqual(mocked_urlopen.call_count, 2)
+        mocked_sleep.assert_called_once_with(1)
+
+    def test_gemini_reports_service_overload_after_one_retry(self):
+        from urllib.error import HTTPError
+
+        overload = HTTPError("https://example.invalid", 503, "Unavailable", {}, BytesIO(b""))
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-jigyasa-key"}),
+            patch("backend.main.urlopen", side_effect=overload) as mocked_urlopen,
+            patch("backend.main.time.sleep"),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                _generate_gemini_answer(
+                    "What is a cell?",
+                    [{"name": "notes.txt", "text": "A cell is the basic unit of life."}],
+                )
+        self.assertEqual(context.exception.status_code, 503)
+        self.assertIn("high demand", context.exception.detail)
+        self.assertEqual(mocked_urlopen.call_count, 2)
+
 
 class HostedSecurityTests(unittest.TestCase):
     def test_production_documents_require_a_valid_session(self):
@@ -172,6 +211,25 @@ class HostedSecurityTests(unittest.TestCase):
         self.assertEqual(context.exception.status_code, 429)
         self.assertIn("20 AI questions", context.exception.detail)
         self.assertIn("consume_ai_question_quota", request.call_args.args[0])
+
+    def test_failed_hosted_gemini_request_refunds_daily_question(self):
+        user = {"id": "7c9c6f99-e916-40c6-9e67-f6813d553812"}
+        document_id = "2e206f67-7fd8-4fab-a18a-944733c89e5b"
+        documents = [{"id": document_id, "name": "notes.txt", "text_content": "A cell is a unit of life."}]
+        with (
+            patch.object(backend_main, "PRODUCTION", True),
+            patch.object(backend_main, "_user_documents", return_value=documents),
+            patch.object(backend_main, "_consume_daily_question") as consume,
+            patch.object(backend_main, "_refund_daily_question") as refund,
+            patch.object(backend_main, "_generate_gemini_answer", side_effect=HTTPException(503, "Gemini busy")),
+        ):
+            with self.assertRaises(HTTPException):
+                backend_main.chat(
+                    backend_main.ChatRequest(question="What is a cell?", document_ids=[document_id]),
+                    user,
+                )
+        consume.assert_called_once_with(user)
+        refund.assert_called_once_with(user)
 
     def test_hosted_session_cookies_are_http_only_and_secure(self):
         response = Response()
