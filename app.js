@@ -1,7 +1,9 @@
 "use strict";
 
 const STORAGE_KEY = "jigyasa-ai-demo-v1";
-const ACCEPTED_EXTENSIONS = new Set(["pdf", "pptx", "docx", "txt", "mp4", "mov", "webm"]);
+const ACCEPTED_EXTENSIONS = new Set([
+  "pdf", "pptx", "docx", "txt", "mp4", "mov", "webm", "opus", "ogg", "mp3", "m4a", "wav", "aac",
+]);
 const pageLabels = {
   overview: "Overview",
   study: "Study with AI",
@@ -430,7 +432,7 @@ function renderStudy() {
   const storageLabel = backendHealth?.auth_required ? "your private account" : "this computer";
   const statusMessage = backendOnline
     ? `<div class="demo-banner"><span>ⓘ</span><span>${backendHealth?.gemini_configured
-      ? `<strong>${backendHealth.auth_required ? "Secure study backend is connected." : "Local study backend is connected."}</strong> Selected study materials are sent to Gemini when you ask a question. Videos are temporarily uploaded to Gemini for analysis; Jigyasa requests their deletion after each answer.`
+      ? `<strong>${backendHealth.auth_required ? "Secure study backend is connected." : "Local study backend is connected."}</strong> Selected study materials are sent to Gemini when you ask a question. Audio and videos are temporarily uploaded to Gemini for analysis; Jigyasa requests their deletion after each answer.`
       : `<strong>Document reading is connected.</strong> Gemini is not configured, so AI answers are unavailable. Files are stored in ${storageLabel}.`}</span></div>`
     : `<div class="demo-banner"><span>ⓘ</span><span><strong>Preview mode:</strong> Open this app using run.ps1 to enable document reading. Files opened directly in a browser are only saved as demo names.</span></div>`;
   const fileChoices = files.length
@@ -447,7 +449,7 @@ function renderStudy() {
         <form class="chat-compose" id="chat-form"><div class="compose-box"><textarea id="chat-input" rows="1" placeholder="Ask a question about your selected materials..." aria-label="Type your question"></textarea><div class="compose-tools"><button type="button" class="compose-tool" data-action="upload" aria-label="Attach study material">${icons.attach}</button><button class="send-button" type="button" data-action="send-chat" aria-label="Send question">${icons.send}</button></div></div><p class="compose-note">${backendHealth?.daily_ai_question_limit ? `Up to ${backendHealth.daily_ai_question_limit} Gemini questions per day; resets at 00:00 UTC.` : "Questions are answered only from the selected material when Gemini is configured."}</p></form>
       </section>
       <aside class="study-side">
-        <section class="panel side-card"><div class="side-card-head"><h3>Your materials</h3><span>${files.length} added</span></div><label class="upload-zone" id="upload-zone" for="file-input"><span class="upload-icon">↑</span><strong>Drop a file or browse</strong><span>PDF, PPTX, DOCX, TXT, MP4, MOV or WebM<br />Up to 25 MB per file</span></label><p class="upload-footnote">Files are stored in ${storageLabel}${backendHealth?.auth_required ? " (100 MB and 25 files per account)" : ""}. Videos are sent to Gemini when selected for a question. Legacy PPT and scanned image-only PDFs are not supported.</p></section>
+        <section class="panel side-card"><div class="side-card-head"><h3>Your materials</h3><span>${files.length} added</span></div><label class="upload-zone" id="upload-zone" for="file-input"><span class="upload-icon">↑</span><strong>Drop a file or browse</strong><span>PDF, PPTX, DOCX, TXT, MP4, MOV, WebM<br />OPUS/OGG, MP3, M4A, WAV or AAC<br />Up to 25 MB per file</span></label><p class="upload-footnote">Files are stored in ${storageLabel}${backendHealth?.auth_required ? " (100 MB and 25 files per account)" : ""}. Audio and video files are sent to Gemini only when selected for a question. Legacy PPT and scanned image-only PDFs are not supported.</p></section>
         <section class="panel side-card"><div class="side-card-head"><h3>Select study materials</h3><button class="text-link" data-page="library">See all →</button></div>${fileChoices}</section>
         <section class="panel side-card"><div class="side-card-head"><h3>Try a topic</h3><span>Quick prompts</span></div><div class="topic-chips">${topics.map((topic) => `<button class="topic-chip" data-topic="${escapeHtml(topic)}">${escapeHtml(topic)}</button>`).join("")}</div></section>
       </aside>
@@ -463,8 +465,8 @@ function renderLibrary() {
   const files = [...activeFiles()].reverse();
   const content = files.length
     ? `<div class="file-list">${files.map((file) => `<div class="file-card"><div class="file-kind ${escapeHtml(file.ext)}">${escapeHtml(file.ext.toUpperCase().slice(0, 4))}</div><div class="file-details"><strong>${escapeHtml(file.name)}</strong><span>${formatBytes(file.size)} · Added ${formatDate(file.addedAt, { month: "short", day: "numeric", year: "numeric" })}</span></div><span class="file-status"><i></i> ${file.server ? backendHealth?.auth_required ? "Private cloud" : "On this computer" : "Demo only"}</span><button class="file-remove" data-remove-file="${escapeHtml(file.id)}" aria-label="Remove ${escapeHtml(file.name)}">×</button></div>`).join("")}</div>`
-    : `<div class="panel empty-state"><div class="empty-illustration">↑</div><h3>Your library is ready for its first note</h3><p>Add PDF, PPTX, DOCX, TXT, MP4, MOV or WebM files. Text is extracted for documents; videos are analyzed by Gemini when selected for a question.</p><button class="button button-primary" data-action="upload">${icons.upload} Choose a file</button></div>`;
-  return `${viewHeader("My library", "A home for your study materials.", action)}<div class="demo-banner" style="margin-bottom:14px"><span>ⓘ</span><span>PDF/PPTX/DOCX/TXT files are stored in ${backendHealth?.auth_required ? "your private cloud account" : "this computer"} and text-extracted. Videos are stored privately and sent to Gemini for analysis when selected; deletion is requested after each answer. Scanned PDFs are not supported.</span></div>${content}`;
+    : `<div class="panel empty-state"><div class="empty-illustration">↑</div><h3>Your library is ready for its first note</h3><p>Add documents, videos, or audio such as WhatsApp OPUS voice notes. Media files are analyzed by Gemini when selected for a question.</p><button class="button button-primary" data-action="upload">${icons.upload} Choose a file</button></div>`;
+  return `${viewHeader("My library", "A home for your study materials.", action)}<div class="demo-banner" style="margin-bottom:14px"><span>ⓘ</span><span>PDF/PPTX/DOCX/TXT files are stored in ${backendHealth?.auth_required ? "your private cloud account" : "this computer"} and text-extracted. Audio and video files are stored privately and sent to Gemini for analysis when selected; deletion is requested after each answer. Scanned PDFs are not supported.</span></div>${content}`;
 }
 
 function getSelectedTopic() {
@@ -558,9 +560,9 @@ function renderProgress() {
 
 function renderSettings() {
   if (backendHealth?.auth_required) {
-    return `${viewHeader("Settings", "Manage your Jigyasa AI account.")}<section class="panel settings-card"><h2>Private study space</h2><p>Signed in as <strong>${escapeHtml(authenticatedUser?.email || "")}</strong>. Study materials and learning history are stored privately in your account and are not visible to other students. Chat, quiz scores, and activity sync across devices and stay until you clear them.</p><p>When you ask about a video, it is sent to Gemini for analysis and Jigyasa requests deletion of the temporary Gemini file after the answer.</p><button class="button button-outline" data-action="clear-account-history">Clear synced learning history</button> <button class="button button-outline" data-action="logout">Sign out</button></section>`;
+    return `${viewHeader("Settings", "Manage your Jigyasa AI account.")}<section class="panel settings-card"><h2>Private study space</h2><p>Signed in as <strong>${escapeHtml(authenticatedUser?.email || "")}</strong>. Study materials and learning history are stored privately in your account and are not visible to other students. Chat, quiz scores, and activity sync across devices and stay until you clear them.</p><p>When you ask about audio or video, the selected file is sent to Gemini for analysis and Jigyasa requests deletion of the temporary Gemini file after the answer.</p><button class="button button-outline" data-action="clear-account-history">Clear synced learning history</button> <button class="button button-outline" data-action="logout">Sign out</button></section>`;
   }
-  return `${viewHeader("Settings", "A few details about this local build.")}<section class="panel settings-card"><h2>Jigyasa AI local setup</h2><p>Uploaded PDF, PPTX, DOCX, TXT, MP4, MOV and WebM files are stored on this computer. Text is extracted locally, while selected videos are sent to Gemini for analysis and deletion is requested after each answer. Quiz attempts, chat history, and progress are saved only in this browser in local mode.</p><p>Gemini is not connected until a separate Jigyasa API key is added to the local <code>.env</code> file. Never put a key in browser code or send it in chat. This setup does not read or change the Anvesha or Ulekh project files.</p><p>Scanned-PDF OCR and cloud accounts are available only in the hosted configuration.</p><button class="button button-outline" data-action="clear-demo">Clear browser demo data</button></section>`;
+  return `${viewHeader("Settings", "A few details about this local build.")}<section class="panel settings-card"><h2>Jigyasa AI local setup</h2><p>Uploaded PDF, PPTX, DOCX, TXT, video and audio files are stored on this computer. Text is extracted locally, while selected media is sent to Gemini for analysis and deletion is requested after each answer. Quiz attempts, chat history, and progress are saved only in this browser in local mode.</p><p>Gemini is not connected until a separate Jigyasa API key is added to the local <code>.env</code> file. Never put a key in browser code or send it in chat. This setup does not read or change the Anvesha or Ulekh project files.</p><p>Scanned-PDF OCR and cloud accounts are available only in the hosted configuration.</p><button class="button button-outline" data-action="clear-demo">Clear browser demo data</button></section>`;
 }
 
 function renderPage() {
@@ -648,7 +650,7 @@ async function addFiles(fileList) {
     saveState();
     showToast(`${valid.length} file${valid.length === 1 ? "" : "s"} added to your demo library. They were not uploaded or read.`);
   }
-  if (rejected.length) showToast(`Couldn't add: ${rejected.join(", ")}. Use PDF, PPTX, DOCX, TXT, MP4, MOV, or WebM up to 25 MB.`);
+  if (rejected.length) showToast(`Couldn't add: ${rejected.join(", ")}. Use PDF, PPTX, DOCX, TXT, MP4, MOV, WebM, OPUS, OGG, MP3, M4A, WAV, or AAC up to 25 MB.`);
   renderPage();
 }
 

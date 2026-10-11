@@ -13,7 +13,7 @@ from fastapi import HTTPException, Response
 from pptx import Presentation
 
 import backend.main as backend_main
-from backend.main import _extract_text, _generate_gemini_answer, _select_context, _validate_video
+from backend.main import _extract_text, _generate_gemini_answer, _select_context, _validate_media
 
 
 class DocumentExtractionTests(unittest.TestCase):
@@ -50,16 +50,24 @@ class DocumentExtractionTests(unittest.TestCase):
             _extract_text("lesson.mp4", b"video")
         self.assertEqual(context.exception.status_code, 415)
 
-    def test_video_signatures_are_checked_for_supported_formats(self):
-        _validate_video("lesson.mp4", b"\x00\x00\x00\x18ftypisomvideo")
-        _validate_video("lesson.mov", b"\x00\x00\x00\x18ftypqt  video")
-        _validate_video("lesson.webm", b"\x1a\x45\xdf\xa3webm")
+    def test_audio_and_video_signatures_are_checked_for_supported_formats(self):
+        _validate_media("lesson.mp4", b"\x00\x00\x00\x18ftypisomvideo")
+        _validate_media("lesson.mov", b"\x00\x00\x00\x18ftypqt  video")
+        _validate_media("lesson.webm", b"\x1a\x45\xdf\xa3webm")
+        _validate_media("voice.opus", b"OggS" + b"\x00" * 8 + b"OpusHead")
+        _validate_media("voice.ogg", b"OggS" + b"\x00" * 8)
+        _validate_media("voice.mp3", b"ID3" + b"\x00" * 8)
+        _validate_media("voice.m4a", b"\x00\x00\x00\x18ftypM4A ")
+        _validate_media("voice.wav", b"RIFF" + b"\x00" * 4 + b"WAVE")
+        _validate_media("voice.aac", b"\xff\xf1" + b"\x00" * 6)
         for name, contents in (
             ("lesson.mp4", b"not a video"),
             ("lesson.webm", b"not a video"),
+            ("voice.opus", b"not opus"),
+            ("voice.mp3", b"not mp3"),
         ):
             with self.subTest(name=name), self.assertRaises(HTTPException) as context:
-                _validate_video(name, contents)
+                _validate_media(name, contents)
             self.assertEqual(context.exception.status_code, 400)
 
 
@@ -159,7 +167,7 @@ class StudyContextTests(unittest.TestCase):
         self.assertIn("high demand", context.exception.detail)
         self.assertEqual(mocked_urlopen.call_count, 2)
 
-    def test_gemini_video_upload_waits_generates_and_requests_file_deletion(self):
+    def test_gemini_media_upload_waits_generates_and_requests_file_deletion(self):
         def response(payload=b"", headers=None):
             result = MagicMock()
             result.__enter__.return_value = result
@@ -170,9 +178,9 @@ class StudyContextTests(unittest.TestCase):
         start = response(headers={"x-goog-upload-url": "https://generativelanguage.googleapis.com/upload/session"})
         finalize = response(json.dumps({
             "file": {
-                "name": "files/temporary-video",
-                "uri": "https://generativelanguage.googleapis.com/v1beta/files/temporary-video",
-                "mimeType": "video/mp4",
+                "name": "files/temporary-audio",
+                "uri": "https://generativelanguage.googleapis.com/v1beta/files/temporary-audio",
+                "mimeType": "audio/ogg",
             }
         }).encode())
         active = response(b'{"state":"ACTIVE"}')
@@ -180,7 +188,7 @@ class StudyContextTests(unittest.TestCase):
             "candidates": [{"content": {"parts": [{"text": "The video shows a cell dividing."}]}}],
         }).encode())
         deleted = response()
-        contents = b"\x00\x00\x00\x18ftypisomvideo"
+        contents = b"OggS" + b"\x00" * 8 + b"OpusHead"
         with (
             patch.dict(os.environ, {"GEMINI_API_KEY": "test-jigyasa-key"}),
             patch("backend.main.urlopen", side_effect=[start, finalize, active, generated, deleted]) as mocked_urlopen,
@@ -188,7 +196,7 @@ class StudyContextTests(unittest.TestCase):
         ):
             answer = _generate_gemini_answer(
                 "What happens in the video?",
-                [{"name": "lesson.mp4", "text": "", "video_bytes": contents}],
+                [{"name": "whatsapp-voice.opus", "text": "", "media_bytes": contents}],
             )
 
         self.assertEqual(answer, "The video shows a cell dividing.")
@@ -200,7 +208,7 @@ class StudyContextTests(unittest.TestCase):
         generation_payload = json.loads(generation_request.data)
         self.assertEqual(
             generation_payload["contents"][0]["parts"][0]["fileData"]["mimeType"],
-            "video/mp4",
+            "audio/ogg",
         )
         self.assertEqual(mocked_urlopen.call_args_list[4].args[0].get_method(), "DELETE")
 
@@ -446,31 +454,31 @@ class LocalApiTests(unittest.TestCase):
         self.assertEqual(deleted.status_code, 204)
         self.assertEqual(self.client.get("/api/documents").json(), [])
 
-    def test_upload_video_and_passes_its_private_bytes_to_chat_analysis(self):
-        contents = b"\x00\x00\x00\x18ftypisomvideo"
+    def test_upload_whatsapp_opus_audio_and_passes_private_bytes_to_chat_analysis(self):
+        contents = b"OggS" + b"\x00" * 8 + b"OpusHead"
         upload = self.client.post(
             "/api/documents",
-            files={"file": ("lesson.mp4", contents, "video/mp4")},
+            files={"file": ("WhatsApp-Audio.opus", contents, "audio/ogg")},
         )
         self.assertEqual(upload.status_code, 201)
-        self.assertEqual(upload.json()["ext"], "mp4")
+        self.assertEqual(upload.json()["ext"], "opus")
 
         with patch(
             "backend.main._generate_gemini_answer",
-            return_value="The video shows a cell dividing.",
+            return_value="The audio says hello.",
         ) as generate:
             answer = self.client.post(
                 "/api/chat",
-                json={"question": "What happens in the video?", "document_ids": [upload.json()["id"]]},
+                json={"question": "What does this voice note say?", "document_ids": [upload.json()["id"]]},
             )
         self.assertEqual(answer.status_code, 200)
-        self.assertEqual(answer.json()["answer"], "The video shows a cell dividing.")
-        self.assertEqual(generate.call_args.args[1][0]["video_bytes"], contents)
+        self.assertEqual(answer.json()["answer"], "The audio says hello.")
+        self.assertEqual(generate.call_args.args[1][0]["media_bytes"], contents)
 
-    def test_video_upload_rejects_non_video_content(self):
+    def test_audio_upload_rejects_invalid_ogg_content(self):
         upload = self.client.post(
             "/api/documents",
-            files={"file": ("lesson.webm", b"not webm", "video/webm")},
+            files={"file": ("WhatsApp-Audio.opus", b"not opus", "audio/ogg")},
         )
         self.assertEqual(upload.status_code, 400)
 
