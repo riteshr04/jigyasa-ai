@@ -218,6 +218,7 @@ class HostedSecurityTests(unittest.TestCase):
         documents = [{"id": document_id, "name": "notes.txt", "text_content": "A cell is a unit of life."}]
         with (
             patch.object(backend_main, "PRODUCTION", True),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-jigyasa-key"}),
             patch.object(backend_main, "_user_documents", return_value=documents),
             patch.object(backend_main, "_consume_daily_question") as consume,
             patch.object(backend_main, "_refund_daily_question") as refund,
