@@ -1,6 +1,6 @@
 # Jigyasa AI
 
-Jigyasa AI is a student study companion for asking questions about study materials and practising with short quizzes. The app supports text extraction from PDF, PPTX, DOCX, and TXT files.
+Jigyasa AI is a student study companion for asking questions about study materials and practising with short quizzes. It extracts text from PDF, PPTX, DOCX, and TXT files and supports video questions about MP4, MOV, and WebM files.
 
 ## Run locally
 
@@ -13,7 +13,7 @@ The local build stores uploaded documents under the ignored `data/` folder. Quiz
 The hosted configuration requires Supabase Auth, a private Supabase Storage bucket, and the documents table. Production startup fails unless its required server-side configuration is present.
 
 1. Create a Supabase project for Jigyasa AI.
-2. In the Supabase SQL Editor, run [`supabase/migrations/202610110001_secure_student_data.sql`](./supabase/migrations/202610110001_secure_student_data.sql).
+2. In the Supabase SQL Editor, run the migrations in `supabase/migrations/` in numeric order. This includes [`202610110001_secure_student_data.sql`](./supabase/migrations/202610110001_secure_student_data.sql), [`202610110002_refund_failed_ai_questions.sql`](./supabase/migrations/202610110002_refund_failed_ai_questions.sql), and [`202610110003_video_and_cloud_history.sql`](./supabase/migrations/202610110003_video_and_cloud_history.sql).
 3. In Supabase Auth settings, enable email/password sign-in and require email confirmation for the public demo. Set the Site URL to the deployed Render origin so confirmation links return to Jigyasa.
 4. In Render, create a Web Service from this repository and use the included `render.yaml` blueprint. Set these environment variables in the Render dashboard:
    - `APP_ORIGIN`: the exact deployed HTTPS origin, without a trailing slash.
@@ -25,20 +25,21 @@ The hosted configuration requires Supabase Auth, a private Supabase Storage buck
 
 Hosted accounts use HttpOnly, HTTPS-only cookies. The browser cannot read the Supabase session tokens. The backend verifies each session with Supabase Auth and filters every document query by the verified account ID. The database tables have row-level security enabled and no direct browser-access policies; private files are only accessed by the backend. Never run this hosted service without the Supabase SQL setup and all required server-side secrets.
 
-Each hosted account is limited to 25 documents, 100 MB of private study files, and 20 Gemini questions per UTC day. The question counter is updated atomically in Supabase so restarting the web service does not reset it. `JIGYASA_DAILY_AI_QUESTION_LIMIT` can be set to a value from 1 to 200 in Render.
+Each hosted account is limited to 25 documents, 100 MB of private study files, and 20 Gemini questions per UTC day. Individual files may be up to 25 MB. The question counter is updated atomically in Supabase so restarting the web service does not reset it. `JIGYASA_DAILY_AI_QUESTION_LIMIT` can be set to a value from 1 to 200 in Render. Chat messages, quiz scores, and activity history sync to a private account-owned row and remain there until cleared in Settings. On first sign-in after this feature is deployed, if the account has no cloud history yet, the app migrates that account's saved history from the current browser.
 
 If Gemini returns a temporary high-demand (HTTP 503) response, Jigyasa retries once after a short pause. If Gemini still fails, the hosted question counter is refunded. Apply new SQL migrations in `supabase/migrations/` to the Supabase project before deploying backend changes.
 
 ## Gemini usage
 
-Gemini usage is governed by the current limits and billing status of the Google AI Studio project and selected model. Requests include only the selected materials' relevant extracted text. Larger documents or selected context can use more tokens. Check the active limits in [Google AI Studio](https://aistudio.google.com/rate-limit?timeRange=last-28-days); do not assume a fixed unlimited question count.
+Gemini usage is governed by the current limits and billing status of the Google AI Studio project and selected model. Requests include only selected material: relevant extracted text for documents and video files selected for analysis. Videos are kept in Jigyasa's private storage; when selected for a question, the backend temporarily uploads them using Gemini's Files API and requests deletion of those temporary Gemini files after the answer. Provider-side processing and account limits still apply. Check the active limits in [Google AI Studio](https://aistudio.google.com/rate-limit?timeRange=last-28-days); do not assume a fixed unlimited question count.
 
 ## Current scope and limits
 
-- Supports PDF, PPTX, DOCX, and TXT files up to 25 MB each, within the hosted account's 100 MB storage allowance.
-- Video transcription, legacy `.ppt`, scanned-PDF OCR, AI-generated quizzes, and cloud-synced quiz history are not implemented.
-- Quiz attempts and learning history are scoped to an account in that browser, but are not synced across devices.
-- Gemini answers are generated from selected study materials; the external Gemini service receives the question and selected text context.
+- Supports PDF, PPTX, DOCX, TXT, MP4, MOV, and WebM files up to 25 MB each, within the hosted account's 100 MB storage allowance.
+- Video Q&A is generated by Gemini from selected video content; this is not a separate downloadable transcript feature. Gemini receives the question and selected video for processing.
+- Legacy `.ppt`, scanned-PDF OCR, and AI-generated quizzes are not implemented. Quizzes use the included sample questions.
+- Hosted chat messages, quiz results, and activity history sync across signed-in devices and can be cleared from Settings. Local-mode activity stays in that browser only.
+- Gemini availability, model limits, and Render service availability are subject to their respective providers; the app cannot guarantee unlimited questions or uninterrupted service.
 - The Render free service may spin down when idle; its first request after inactivity can take longer.
 
 ## Validate backend tests

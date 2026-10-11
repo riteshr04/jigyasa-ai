@@ -13,7 +13,7 @@ from fastapi import HTTPException, Response
 from pptx import Presentation
 
 import backend.main as backend_main
-from backend.main import _extract_text, _generate_gemini_answer, _select_context
+from backend.main import _extract_text, _generate_gemini_answer, _select_context, _validate_video
 
 
 class DocumentExtractionTests(unittest.TestCase):
@@ -49,6 +49,18 @@ class DocumentExtractionTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as context:
             _extract_text("lesson.mp4", b"video")
         self.assertEqual(context.exception.status_code, 415)
+
+    def test_video_signatures_are_checked_for_supported_formats(self):
+        _validate_video("lesson.mp4", b"\x00\x00\x00\x18ftypisomvideo")
+        _validate_video("lesson.mov", b"\x00\x00\x00\x18ftypqt  video")
+        _validate_video("lesson.webm", b"\x1a\x45\xdf\xa3webm")
+        for name, contents in (
+            ("lesson.mp4", b"not a video"),
+            ("lesson.webm", b"not a video"),
+        ):
+            with self.subTest(name=name), self.assertRaises(HTTPException) as context:
+                _validate_video(name, contents)
+            self.assertEqual(context.exception.status_code, 400)
 
 
 class StudyContextTests(unittest.TestCase):
@@ -147,6 +159,51 @@ class StudyContextTests(unittest.TestCase):
         self.assertIn("high demand", context.exception.detail)
         self.assertEqual(mocked_urlopen.call_count, 2)
 
+    def test_gemini_video_upload_waits_generates_and_requests_file_deletion(self):
+        def response(payload=b"", headers=None):
+            result = MagicMock()
+            result.__enter__.return_value = result
+            result.read.return_value = payload
+            result.headers = headers or {}
+            return result
+
+        start = response(headers={"x-goog-upload-url": "https://generativelanguage.googleapis.com/upload/session"})
+        finalize = response(json.dumps({
+            "file": {
+                "name": "files/temporary-video",
+                "uri": "https://generativelanguage.googleapis.com/v1beta/files/temporary-video",
+                "mimeType": "video/mp4",
+            }
+        }).encode())
+        active = response(b'{"state":"ACTIVE"}')
+        generated = response(json.dumps({
+            "candidates": [{"content": {"parts": [{"text": "The video shows a cell dividing."}]}}],
+        }).encode())
+        deleted = response()
+        contents = b"\x00\x00\x00\x18ftypisomvideo"
+        with (
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-jigyasa-key"}),
+            patch("backend.main.urlopen", side_effect=[start, finalize, active, generated, deleted]) as mocked_urlopen,
+            patch("backend.main.time.sleep"),
+        ):
+            answer = _generate_gemini_answer(
+                "What happens in the video?",
+                [{"name": "lesson.mp4", "text": "", "video_bytes": contents}],
+            )
+
+        self.assertEqual(answer, "The video shows a cell dividing.")
+        self.assertEqual(mocked_urlopen.call_count, 5)
+        upload_request = mocked_urlopen.call_args_list[1].args[0]
+        self.assertEqual(upload_request.data, contents)
+        self.assertEqual(upload_request.get_header("X-goog-upload-command"), "upload, finalize")
+        generation_request = mocked_urlopen.call_args_list[3].args[0]
+        generation_payload = json.loads(generation_request.data)
+        self.assertEqual(
+            generation_payload["contents"][0]["parts"][0]["fileData"]["mimeType"],
+            "video/mp4",
+        )
+        self.assertEqual(mocked_urlopen.call_args_list[4].args[0].get_method(), "DELETE")
+
 
 class HostedSecurityTests(unittest.TestCase):
     def test_production_documents_require_a_valid_session(self):
@@ -181,6 +238,57 @@ class HostedSecurityTests(unittest.TestCase):
         self.assertIn("owner_id=eq.7c9c6f99-e916-40c6-9e67-f6813d553812", query)
         self.assertNotIn("text_content", query)
         self.assertTrue(request.call_args.kwargs["service"])
+
+    def test_learning_state_routes_read_and_write_only_the_verified_owner_state(self):
+        user = {"id": "7c9c6f99-e916-40c6-9e67-f6813d553812"}
+        state = {
+            "history": [{"type": "chat", "title": "What is a cell?", "at": 1700000000000}],
+            "quizScores": [],
+            "chatMessages": [{"role": "user", "text": "What is a cell?"}],
+        }
+        with TestClient(backend_main.app) as client:
+            client.app.dependency_overrides[backend_main.require_authenticated_user] = lambda: user
+            try:
+                with (
+                    patch("backend.main._read_learning_state", return_value=(backend_main.LearningState(), False)) as read_state,
+                    patch("backend.main._write_learning_state") as write_state,
+                ):
+                    fetched = client.get("/api/learning-state")
+                    saved = client.put("/api/learning-state", json=state)
+            finally:
+                client.app.dependency_overrides.clear()
+        self.assertEqual(fetched.status_code, 200)
+        self.assertFalse(fetched.json()["has_cloud_state"])
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json(), {"saved": True})
+        read_state.assert_called_once_with(user)
+        write_state.assert_called_once()
+        self.assertEqual(write_state.call_args.args[0], user)
+        normalized_state = write_state.call_args.args[1].model_dump(mode="json")
+        self.assertEqual(normalized_state["history"][0]["title"], state["history"][0]["title"])
+        self.assertEqual(normalized_state["chatMessages"], state["chatMessages"])
+
+    def test_learning_state_serialized_size_is_bounded(self):
+        with self.assertRaises(ValueError):
+            backend_main.LearningState(
+                history=[],
+                quizScores=[],
+                chatMessages=[{"role": "user", "text": "💡" * 12_000}] * 60,
+            )
+
+    def test_learning_state_database_queries_use_the_verified_account_id(self):
+        user = {"id": "7c9c6f99-e916-40c6-9e67-f6813d553812"}
+        with patch("backend.main._supabase_request", return_value=[]) as request:
+            state, exists = backend_main._read_learning_state(user)
+        self.assertFalse(exists)
+        self.assertEqual(state.model_dump(mode="json")["history"], [])
+        self.assertIn("owner_id=eq.7c9c6f99-e916-40c6-9e67-f6813d553812", request.call_args.args[0])
+        self.assertTrue(request.call_args.kwargs["service"])
+
+        with patch("backend.main._supabase_request", return_value=None) as request:
+            backend_main._write_learning_state(user, backend_main.LearningState())
+        self.assertIn("on_conflict=owner_id", request.call_args.args[0])
+        self.assertEqual(request.call_args.args[2]["owner_id"], user["id"])
 
     def test_hosted_chat_fetches_only_validated_selected_document_ids(self):
         user = {"id": "7c9c6f99-e916-40c6-9e67-f6813d553812"}
@@ -231,6 +339,34 @@ class HostedSecurityTests(unittest.TestCase):
                 )
         consume.assert_called_once_with(user)
         refund.assert_called_once_with(user)
+
+    def test_failed_hosted_video_download_refunds_daily_question(self):
+        user = {"id": "7c9c6f99-e916-40c6-9e67-f6813d553812"}
+        document_id = "2e206f67-7fd8-4fab-a18a-944733c89e5b"
+        documents = [{
+            "id": document_id,
+            "name": "lesson.mp4",
+            "ext": "mp4",
+            "storage_path": f"{user['id']}/{document_id}.mp4",
+            "text_content": "",
+        }]
+        with (
+            patch.object(backend_main, "PRODUCTION", True),
+            patch.dict(os.environ, {"GEMINI_API_KEY": "test-jigyasa-key"}),
+            patch.object(backend_main, "_user_documents", return_value=documents),
+            patch.object(backend_main, "_consume_daily_question") as consume,
+            patch.object(backend_main, "_refund_daily_question") as refund,
+            patch.object(backend_main, "_storage_download", side_effect=HTTPException(502, "storage unavailable")),
+            patch.object(backend_main, "_generate_gemini_answer") as generate,
+        ):
+            with self.assertRaises(HTTPException):
+                backend_main.chat(
+                    backend_main.ChatRequest(question="What happens?", document_ids=[document_id]),
+                    user,
+                )
+        consume.assert_called_once_with(user)
+        refund.assert_called_once_with(user)
+        generate.assert_not_called()
 
     def test_hosted_session_cookies_are_http_only_and_secure(self):
         response = Response()
@@ -309,6 +445,34 @@ class LocalApiTests(unittest.TestCase):
         deleted = self.client.delete(f"/api/documents/{document['id']}")
         self.assertEqual(deleted.status_code, 204)
         self.assertEqual(self.client.get("/api/documents").json(), [])
+
+    def test_upload_video_and_passes_its_private_bytes_to_chat_analysis(self):
+        contents = b"\x00\x00\x00\x18ftypisomvideo"
+        upload = self.client.post(
+            "/api/documents",
+            files={"file": ("lesson.mp4", contents, "video/mp4")},
+        )
+        self.assertEqual(upload.status_code, 201)
+        self.assertEqual(upload.json()["ext"], "mp4")
+
+        with patch(
+            "backend.main._generate_gemini_answer",
+            return_value="The video shows a cell dividing.",
+        ) as generate:
+            answer = self.client.post(
+                "/api/chat",
+                json={"question": "What happens in the video?", "document_ids": [upload.json()["id"]]},
+            )
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(answer.json()["answer"], "The video shows a cell dividing.")
+        self.assertEqual(generate.call_args.args[1][0]["video_bytes"], contents)
+
+    def test_video_upload_rejects_non_video_content(self):
+        upload = self.client.post(
+            "/api/documents",
+            files={"file": ("lesson.webm", b"not webm", "video/webm")},
+        )
+        self.assertEqual(upload.status_code, 400)
 
     def test_chat_without_gemini_key_is_explicitly_unavailable(self):
         upload = self.client.post(

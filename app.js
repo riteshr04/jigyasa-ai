@@ -1,7 +1,7 @@
 "use strict";
 
 const STORAGE_KEY = "jigyasa-ai-demo-v1";
-const ACCEPTED_EXTENSIONS = new Set(["pdf", "pptx", "docx", "txt"]);
+const ACCEPTED_EXTENSIONS = new Set(["pdf", "pptx", "docx", "txt", "mp4", "mov", "webm"]);
 const pageLabels = {
   overview: "Overview",
   study: "Study with AI",
@@ -81,6 +81,8 @@ let backendOnline = false;
 let authenticatedUser = null;
 let authMode = "login";
 let toastTimer = 0;
+let cloudSyncQueue = Promise.resolve();
+let cloudStateReady = false;
 const pageContent = document.getElementById("page-content");
 const fileInput = document.getElementById("file-input");
 
@@ -91,6 +93,66 @@ function saveState() {
     console.error("Could not save Jigyasa AI demo state.", error);
     showToast("Could not save this update in your browser storage.");
   }
+  if (!backendHealth?.auth_required || !authenticatedUser || !backendOnline) return Promise.resolve(true);
+  if (!cloudStateReady) {
+    showToast("Your account history has not loaded yet; this update is saved only on this device.");
+    return Promise.resolve(false);
+  }
+  const snapshot = {
+    history: state.history,
+    quizScores: state.quizScores,
+    chatMessages: state.chatMessages,
+  };
+  const pendingSync = cloudSyncQueue.then(async () => {
+    const response = await fetch("/api/learning-state", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(snapshot),
+    });
+    if (!response.ok) {
+      const result = await response.json();
+      throw new Error(result.detail || `Learning history sync failed (HTTP ${response.status}).`);
+    }
+  });
+  const syncResult = pendingSync.then(() => true).catch((error) => {
+    console.error("Could not sync learning history to the account.", error);
+    showToast("This update is saved on this device, but could not sync to your account.");
+    return false;
+  });
+  cloudSyncQueue = syncResult.then(() => undefined);
+  return syncResult;
+}
+
+async function restoreCloudLearningState() {
+  cloudStateReady = false;
+  const response = await fetch("/api/learning-state");
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.detail || `Learning history could not be loaded (HTTP ${response.status}).`);
+  if (result.has_cloud_state) {
+    state = { ...emptyState(), ...result.state, files: [] };
+  } else {
+    state = { ...state, files: [] };
+    const saveResponse = await fetch("/api/learning-state", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        history: state.history,
+        quizScores: state.quizScores,
+        chatMessages: state.chatMessages,
+      }),
+    });
+    if (!saveResponse.ok) {
+      const saveResult = await saveResponse.json();
+      throw new Error(saveResult.detail || `This device's learning history could not be migrated (HTTP ${saveResponse.status}).`);
+    }
+  }
+  try {
+    localStorage.setItem(activeStorageKey, JSON.stringify(state));
+  } catch (error) {
+    console.error("Could not cache synced learning history in this browser.", error);
+    showToast("Your account history loaded, but could not be cached on this device.");
+  }
+  cloudStateReady = true;
 }
 
 function escapeHtml(value) {
@@ -189,6 +251,14 @@ async function initializeBackend() {
     }
     await refreshServerDocuments();
     backendOnline = true;
+    if (backendHealth.auth_required) {
+      try {
+        await restoreCloudLearningState();
+      } catch (error) {
+        console.error("Could not load or migrate account learning history.", error);
+        showToast(error.message || "Learning history could not be synced. It remains on this device.");
+      }
+    }
     document.getElementById("auth-gate").hidden = true;
     document.querySelector(".app-shell").classList.add("ready");
     renderPage();
@@ -284,6 +354,12 @@ async function submitAuthentication(event) {
     state = loadState(activeStorageKey);
     await refreshServerDocuments();
     backendOnline = true;
+    try {
+      await restoreCloudLearningState();
+    } catch (error) {
+      console.error("Could not load or migrate account learning history.", error);
+      showToast(error.message || "Learning history could not be synced. It remains on this device.");
+    }
     document.getElementById("auth-gate").hidden = true;
     document.querySelector(".app-shell").classList.add("ready");
     renderPage();
@@ -354,7 +430,7 @@ function renderStudy() {
   const storageLabel = backendHealth?.auth_required ? "your private account" : "this computer";
   const statusMessage = backendOnline
     ? `<div class="demo-banner"><span>ⓘ</span><span>${backendHealth?.gemini_configured
-      ? `<strong>${backendHealth.auth_required ? "Secure study backend is connected." : "Local study backend is connected."}</strong> Selected study materials are sent to Gemini when you ask a question.`
+      ? `<strong>${backendHealth.auth_required ? "Secure study backend is connected." : "Local study backend is connected."}</strong> Selected study materials are sent to Gemini when you ask a question. Videos are temporarily uploaded to Gemini for analysis; Jigyasa requests their deletion after each answer.`
       : `<strong>Document reading is connected.</strong> Gemini is not configured, so AI answers are unavailable. Files are stored in ${storageLabel}.`}</span></div>`
     : `<div class="demo-banner"><span>ⓘ</span><span><strong>Preview mode:</strong> Open this app using run.ps1 to enable document reading. Files opened directly in a browser are only saved as demo names.</span></div>`;
   const fileChoices = files.length
@@ -371,7 +447,7 @@ function renderStudy() {
         <form class="chat-compose" id="chat-form"><div class="compose-box"><textarea id="chat-input" rows="1" placeholder="Ask a question about your selected materials..." aria-label="Type your question"></textarea><div class="compose-tools"><button type="button" class="compose-tool" data-action="upload" aria-label="Attach study material">${icons.attach}</button><button class="send-button" type="button" data-action="send-chat" aria-label="Send question">${icons.send}</button></div></div><p class="compose-note">${backendHealth?.daily_ai_question_limit ? `Up to ${backendHealth.daily_ai_question_limit} Gemini questions per day; resets at 00:00 UTC.` : "Questions are answered only from the selected material when Gemini is configured."}</p></form>
       </section>
       <aside class="study-side">
-        <section class="panel side-card"><div class="side-card-head"><h3>Your materials</h3><span>${files.length} added</span></div><label class="upload-zone" id="upload-zone" for="file-input"><span class="upload-icon">↑</span><strong>Drop a file or browse</strong><span>PDF, PPTX, DOCX or TXT<br />Up to 25 MB per file</span></label><p class="upload-footnote">Files are stored in ${storageLabel}${backendHealth?.auth_required ? " (100 MB and 25 files per account)" : ""}. Video, legacy PPT, and scanned image-only PDFs are not supported yet.</p></section>
+        <section class="panel side-card"><div class="side-card-head"><h3>Your materials</h3><span>${files.length} added</span></div><label class="upload-zone" id="upload-zone" for="file-input"><span class="upload-icon">↑</span><strong>Drop a file or browse</strong><span>PDF, PPTX, DOCX, TXT, MP4, MOV or WebM<br />Up to 25 MB per file</span></label><p class="upload-footnote">Files are stored in ${storageLabel}${backendHealth?.auth_required ? " (100 MB and 25 files per account)" : ""}. Videos are sent to Gemini when selected for a question. Legacy PPT and scanned image-only PDFs are not supported.</p></section>
         <section class="panel side-card"><div class="side-card-head"><h3>Select study materials</h3><button class="text-link" data-page="library">See all →</button></div>${fileChoices}</section>
         <section class="panel side-card"><div class="side-card-head"><h3>Try a topic</h3><span>Quick prompts</span></div><div class="topic-chips">${topics.map((topic) => `<button class="topic-chip" data-topic="${escapeHtml(topic)}">${escapeHtml(topic)}</button>`).join("")}</div></section>
       </aside>
@@ -387,8 +463,8 @@ function renderLibrary() {
   const files = [...activeFiles()].reverse();
   const content = files.length
     ? `<div class="file-list">${files.map((file) => `<div class="file-card"><div class="file-kind ${escapeHtml(file.ext)}">${escapeHtml(file.ext.toUpperCase().slice(0, 4))}</div><div class="file-details"><strong>${escapeHtml(file.name)}</strong><span>${formatBytes(file.size)} · Added ${formatDate(file.addedAt, { month: "short", day: "numeric", year: "numeric" })}</span></div><span class="file-status"><i></i> ${file.server ? backendHealth?.auth_required ? "Private cloud" : "On this computer" : "Demo only"}</span><button class="file-remove" data-remove-file="${escapeHtml(file.id)}" aria-label="Remove ${escapeHtml(file.name)}">×</button></div>`).join("")}</div>`
-    : `<div class="panel empty-state"><div class="empty-illustration">↑</div><h3>Your library is ready for its first note</h3><p>Add a text-based PDF, PPTX, DOCX or TXT file. Supported files are extracted locally so they can be used for grounded study questions.</p><button class="button button-primary" data-action="upload">${icons.upload} Choose a file</button></div>`;
-  return `${viewHeader("My library", "A home for your study materials.", action)}<div class="demo-banner" style="margin-bottom:14px"><span>ⓘ</span><span>PDF/PPTX/DOCX/TXT files are stored and text-extracted in ${backendHealth?.auth_required ? "your private cloud account" : "this computer"}. Videos and scanned PDFs are not supported yet.</span></div>${content}`;
+    : `<div class="panel empty-state"><div class="empty-illustration">↑</div><h3>Your library is ready for its first note</h3><p>Add PDF, PPTX, DOCX, TXT, MP4, MOV or WebM files. Text is extracted for documents; videos are analyzed by Gemini when selected for a question.</p><button class="button button-primary" data-action="upload">${icons.upload} Choose a file</button></div>`;
+  return `${viewHeader("My library", "A home for your study materials.", action)}<div class="demo-banner" style="margin-bottom:14px"><span>ⓘ</span><span>PDF/PPTX/DOCX/TXT files are stored in ${backendHealth?.auth_required ? "your private cloud account" : "this computer"} and text-extracted. Videos are stored privately and sent to Gemini for analysis when selected; deletion is requested after each answer. Scanned PDFs are not supported.</span></div>${content}`;
 }
 
 function getSelectedTopic() {
@@ -453,7 +529,7 @@ function renderHistory() {
   const items = [...state.history].reverse();
   const content = items.length
     ? `<div class="history-list">${items.map((item) => `<div class="history-card"><div class="history-icon">${item.type === "quiz" ? "✓" : "✦"}</div><div class="history-card-copy"><strong>${escapeHtml(item.title)}</strong><span>${item.type === "quiz" ? "Quiz" : "Study chat"} · ${formatDate(item.at, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span></div>${item.type === "quiz" ? `<span class="history-result">${item.score}/${item.total}</span>` : `<span class="topic-chip">Demo</span>`}</div>`).join("")}</div>`
-    : `<div class="panel empty-state"><div class="empty-illustration">◷</div><h3>Your learning journey starts here</h3><p>Questions you explore and quizzes you complete will appear here, saved just for this browser.</p><button class="button button-primary" data-page="study">${icons.sparkle} Start learning</button></div>`;
+    : `<div class="panel empty-state"><div class="empty-illustration">◷</div><h3>Your learning journey starts here</h3><p>Questions you explore and quizzes you complete will appear here${backendHealth?.auth_required ? ", saved privately to your account" : ", saved in this browser"}.</p><button class="button button-primary" data-page="study">${icons.sparkle} Start learning</button></div>`;
   return `${viewHeader("Your history", "A little trail of what you've explored so far.")}${content}`;
 }
 
@@ -482,9 +558,9 @@ function renderProgress() {
 
 function renderSettings() {
   if (backendHealth?.auth_required) {
-    return `${viewHeader("Settings", "Manage your Jigyasa AI account.")}<section class="panel settings-card"><h2>Private study space</h2><p>Signed in as <strong>${escapeHtml(authenticatedUser?.email || "")}</strong>. Study materials are stored in your private account and are not visible to other students.</p><p>Quiz attempts and learning history stay in this browser, scoped to your account on this device.</p><button class="button button-outline" data-action="clear-account-history">Clear learning history on this device</button> <button class="button button-outline" data-action="logout">Sign out</button></section>`;
+    return `${viewHeader("Settings", "Manage your Jigyasa AI account.")}<section class="panel settings-card"><h2>Private study space</h2><p>Signed in as <strong>${escapeHtml(authenticatedUser?.email || "")}</strong>. Study materials and learning history are stored privately in your account and are not visible to other students. Chat, quiz scores, and activity sync across devices and stay until you clear them.</p><p>When you ask about a video, it is sent to Gemini for analysis and Jigyasa requests deletion of the temporary Gemini file after the answer.</p><button class="button button-outline" data-action="clear-account-history">Clear synced learning history</button> <button class="button button-outline" data-action="logout">Sign out</button></section>`;
   }
-  return `${viewHeader("Settings", "A few details about this local build.")}<section class="panel settings-card"><h2>Jigyasa AI local setup</h2><p>Uploaded PDF, PPTX, DOCX, and TXT files are stored on this computer and text is extracted locally. Quiz attempts, chat history, and progress are still saved only in this browser.</p><p>Gemini is not connected until a separate Jigyasa API key is added to the local <code>.env</code> file. Never put a key in browser code or send it in chat. This setup does not read or change the Anvesha or Ulekh project files.</p><p>Video transcription, scanned-PDF OCR, accounts, and cloud sync are not implemented yet.</p><button class="button button-outline" data-action="clear-demo">Clear browser demo data</button></section>`;
+  return `${viewHeader("Settings", "A few details about this local build.")}<section class="panel settings-card"><h2>Jigyasa AI local setup</h2><p>Uploaded PDF, PPTX, DOCX, TXT, MP4, MOV and WebM files are stored on this computer. Text is extracted locally, while selected videos are sent to Gemini for analysis and deletion is requested after each answer. Quiz attempts, chat history, and progress are saved only in this browser in local mode.</p><p>Gemini is not connected until a separate Jigyasa API key is added to the local <code>.env</code> file. Never put a key in browser code or send it in chat. This setup does not read or change the Anvesha or Ulekh project files.</p><p>Scanned-PDF OCR and cloud accounts are available only in the hosted configuration.</p><button class="button button-outline" data-action="clear-demo">Clear browser demo data</button></section>`;
 }
 
 function renderPage() {
@@ -555,7 +631,7 @@ async function addFiles(fileList) {
     if (added) {
       try {
         await refreshServerDocuments();
-        showToast(`${added} document${added === 1 ? "" : "s"} uploaded and text-extracted on this computer.`);
+        showToast(`${added} study material${added === 1 ? "" : "s"} uploaded to your library.`);
       } catch (error) {
         console.error("Could not refresh the local document library.", error);
         showToast(error.message || "The document was uploaded, but the library did not refresh.");
@@ -572,7 +648,7 @@ async function addFiles(fileList) {
     saveState();
     showToast(`${valid.length} file${valid.length === 1 ? "" : "s"} added to your demo library. They were not uploaded or read.`);
   }
-  if (rejected.length) showToast(`Couldn't add: ${rejected.join(", ")}. Use PDF, PPTX, DOCX, or TXT up to 25 MB.`);
+  if (rejected.length) showToast(`Couldn't add: ${rejected.join(", ")}. Use PDF, PPTX, DOCX, TXT, MP4, MOV, or WebM up to 25 MB.`);
   renderPage();
 }
 
@@ -645,6 +721,7 @@ function saveQuizResult() {
     at: Date.now(),
   };
   state.quizScores.push(attempt);
+  state.quizScores = state.quizScores.slice(-500);
   recordHistory({ type: "quiz", title: `${attempt.topic} quiz`, score: attempt.score, total: attempt.total });
   saveState();
 }
@@ -702,18 +779,21 @@ document.addEventListener("click", (event) => {
     showToast("Demo data cleared from this browser.");
     renderPage();
   } else if (target.dataset.action === "clear-account-history") {
-    if (!window.confirm("Clear your chat, quiz scores, and activity history from this browser? Study materials in your private account will not be removed.")) return;
+    if (!window.confirm("Clear your chat, quiz scores, and activity history from your account on all devices? Study materials in your private account will not be removed.")) return;
     state = { ...state, history: [], quizScores: [], chatMessages: [] };
     quizSession = null;
-    saveState();
-    showToast("Your learning history was cleared from this browser.");
+    saveState().then((synced) => {
+      if (synced) showToast("Your learning history was cleared from your account.");
+    });
     renderPage();
   } else if (target.dataset.action === "logout") {
-    fetch("/api/auth/logout", { method: "POST" })
+    cloudSyncQueue.then(() => fetch("/api/auth/logout", { method: "POST" }))
       .then(async (response) => {
         if (!response.ok) throw new Error("Could not sign out. Please try again.");
         authenticatedUser = null;
+        cloudStateReady = false;
         pendingFiles = [];
+        serverDocuments = null;
         state = emptyState();
         showAuthGate();
       })
