@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f7f8fc" />
+    <meta
+      name="description"
+      content="Jigyasa AI is a friendly study space for learning, asking questions, and tracking your progress."
+    />
+    <title>Jigyasa AI — Your curious mind, supported</title>
+    <link rel="stylesheet" href="styles.css?v=2" />
+    <script src="app.js?v=4" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <a class="brand" href="#" aria-label="Jigyasa AI home" data-page="overview">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 40 40" fill="none">
+              <path d="M20 4.5 23.8 16l11.7 4-11.7 3.9L20 35.5l-3.9-11.6L4.5 20l11.6-4L20 4.5Z" fill="currentColor"/>
+              <circle cx="30.7" cy="9.2" r="3.3" fill="#B9E7DA"/>
+            </svg>
+          </span>
+          <span class="brand-name">jigyasa<span>ai</span></span>
+        </a>
+
+        <div class="workspace-label">YOUR WORKSPACE</div>
+        <nav class="nav-list" aria-label="Main navigation">
+          <button class="nav-item active" data-page="overview">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8" rx="2"/><rect x="14" y="3" width="7" height="5" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/><rect x="3" y="15" width="7" height="6" rx="2"/></svg></span>
+            <span>Overview</span>
+          </button>
+          <button class="nav-item" data-page="study">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20M8 7h8M8 10h6"/></svg></span>
+            <span>Study with AI</span>
+            <span class="nav-badge">NEW</span>
+          </button>
+          <button class="nav-item" data-page="quiz">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M9 4.5h6M9 3h6a1 1 0 0 1 1 1v2H8V4a1 1 0 0 1 1-1Z"/><path d="M7 5H5v16h14V5h-2M8 12l2 2 5-5M8 17h8"/></svg></span>
+            <span>Quiz arena</span>
+          </button>
+          <button class="nav-item" data-page="library">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z"/><path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/></svg></span>
+            <span>My library</span>
+            <span class="nav-count" id="library-count">0</span>
+          </button>
+        </nav>
+
+        <div class="workspace-label nav-secondary-label">YOUR ACTIVITY</div>
+        <nav class="nav-list" aria-label="Activity navigation">
+          <button class="nav-item" data-page="progress">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><path d="M4 19V5M4 19h17"/><path d="m7 15 4-4 3 2 6-7"/></svg></span>
+            <span>My progress</span>
+          </button>
+          <button class="nav-item" data-page="history">
+            <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span>
+            <span>History</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-spacer"></div>
+        <div class="study-tip">
+          <span class="tip-sparkle">✦</span>
+          <p class="tip-eyebrow">A LITTLE REMINDER</p>
+          <p class="tip-copy">Small steps every day add up to big things.</p>
+          <span class="tip-doodle" aria-hidden="true">✳</span>
+        </div>
+        <button class="nav-item settings-item" data-page="settings">
+          <span class="nav-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.5.9l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.5-.9l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-1.8L6.9 12l1.4-2.4 1.7.7a8 8 0 0 1 1.5-.9l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.5.9l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1 0 1.9Z" transform="translate(-1 -1)"/></svg></span>
+          <span>Settings</span>
+        </button>
+        <div class="profile-card">
+          <div class="avatar">S</div>
+          <div class="profile-info"><strong>Student</strong><span>Your learning space</span></div>
+          <span class="profile-more" aria-hidden="true">···</span>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <button class="mobile-menu" id="mobile-menu" aria-label="Open navigation" aria-expanded="false">
+            <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <div class="breadcrumb"><span>My workspace</span><span class="breadcrumb-slash">/</span><strong id="page-breadcrumb">Overview</strong></div>
+          <div class="topbar-actions">
+            <div class="streak-pill"><span>✦</span><strong id="streak-count">0</strong><span>day streak</span></div>
+            <button class="icon-button notification-button" aria-label="Notifications">
+              <svg viewBox="0 0 24 24"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/></svg>
+              <i></i>
+            </button>
+            <div class="avatar top-avatar" aria-label="Student profile">S</div>
+          </div>
+        </header>
+        <section class="page-content" id="page-content" aria-live="polite"></section>
+        <footer class="app-footer">
+          <span>Made for curious minds</span><span class="footer-heart">♥</span><span>Jigyasa AI</span>
+        </footer>
+      </main>
+    </div>
+    <section class="auth-gate" id="auth-gate" aria-labelledby="auth-title" hidden>
+      <form class="auth-card" id="auth-form">
+        <a class="brand auth-brand" href="#" aria-label="Jigyasa AI">
+          <span class="brand-mark" aria-hidden="true">✦</span>
+          <span class="brand-name">jigyasa<span>ai</span></span>
+        </a>
+        <p class="eyebrow">YOUR PRIVATE STUDY SPACE</p>
+        <h1 id="auth-title">Welcome back</h1>
+        <p class="auth-copy" id="auth-copy">Sign in to access your study materials and learning history.</p>
+        <label for="auth-email">Email</label>
+        <input id="auth-email" type="email" autocomplete="email" required maxlength="254" />
+        <label for="auth-password">Password</label>
+        <input id="auth-password" type="password" autocomplete="current-password" required minlength="8" maxlength="128" />
+        <p class="auth-error" id="auth-error" role="status" aria-live="polite"></p>
+        <button class="button auth-submit" id="auth-submit" type="submit">Sign in</button>
+        <p class="auth-toggle-copy" id="auth-toggle-copy">New to Jigyasa AI? <button class="text-link" type="button" data-auth-toggle>Create an account</button></p>
+      </form>
+    </section>
+    <input id="file-input" class="visually-hidden" type="file" multiple accept=".pdf,.pptx,.docx,.txt" />
+    <div class="toast-region" id="toast-region" role="status" aria-live="polite"></div>
+  </body>
+</html>
