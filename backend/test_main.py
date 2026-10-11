@@ -196,6 +196,24 @@ class HostedSecurityTests(unittest.TestCase):
         self.assertEqual(request.call_args.kwargs["access_token"], tokens.access_token)
         self.assertEqual(len(response.headers.getlist("set-cookie")), 2)
 
+    def test_signup_accepts_immediate_supabase_session_response(self):
+        response = Response()
+        session = {
+            "access_token": "a" * 32,
+            "refresh_token": "r" * 32,
+            "expires_in": 3600,
+            "user": {"id": "7c9c6f99-e916-40c6-9e67-f6813d553812", "email": "student@example.test"},
+        }
+        credentials = backend_main.Credentials(email="student@example.test", password="safe-password-123")
+        with patch.object(backend_main, "PRODUCTION", True), patch(
+            "backend.main._auth_request", return_value=session
+        ):
+            result = backend_main.signup(credentials, response)
+        self.assertTrue(result["authenticated"])
+        self.assertFalse(result["email_confirmation_required"])
+        self.assertEqual(result["id"], session["user"]["id"])
+        self.assertEqual(len(response.headers.getlist("set-cookie")), 2)
+
 
 class LocalApiTests(unittest.TestCase):
     def setUp(self):

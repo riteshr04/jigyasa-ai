@@ -533,9 +533,13 @@ def signup(credentials: Credentials, response: Response) -> dict[str, object]:
         raise HTTPException(status_code=404, detail="Account sign-up is available on the hosted version.")
     result = _auth_request("/signup", {"email": credentials.email, "password": credentials.password})
     session = result.get("session")
+    if not isinstance(session, dict) and isinstance(result.get("access_token"), str):
+        session = result
     if isinstance(session, dict):
         _set_session_cookies(response, session)
     user = result.get("user")
+    if not isinstance(user, dict):
+        user = session.get("user") if isinstance(session, dict) else None
     return {
         "authenticated": isinstance(session, dict),
         "email_confirmation_required": not isinstance(session, dict),
