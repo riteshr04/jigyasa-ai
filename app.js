@@ -163,6 +163,99 @@ function escapeHtml(value) {
   })[character]);
 }
 
+function formatInlineMarkdown(value) {
+  const codeBlocks = [];
+  const withCode = value.replace(/`([^`\n]+)`/g, (_, code) => {
+    const token = `\u0000${codeBlocks.length}\u0000`;
+    codeBlocks.push(`<code>${code}</code>`);
+    return token;
+  });
+  return withCode
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/__(.+?)__/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
+    .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>")
+    .replace(/\u0000(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)]);
+}
+
+function renderMarkdown(text) {
+  const lines = escapeHtml(text).replace(/\r\n?/g, "\n").split("\n");
+  const output = [];
+  let paragraph = [];
+  let listType = null;
+  let codeLines = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      output.push(`<p>${paragraph.map(formatInlineMarkdown).join("<br>")}</p>`);
+      paragraph = [];
+    }
+  };
+  const closeList = () => {
+    if (listType) {
+      output.push(`</${listType}>`);
+      listType = null;
+    }
+  };
+
+  for (const line of lines) {
+    if (codeLines) {
+      if (/^\s*```/.test(line)) {
+        output.push(`<pre><code>${codeLines.join("\n")}</code></pre>`);
+        codeLines = null;
+      } else {
+        codeLines.push(line);
+      }
+      continue;
+    }
+    if (/^\s*```/.test(line)) {
+      flushParagraph();
+      closeList();
+      codeLines = [];
+      continue;
+    }
+    if (!line.trim()) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+    if (/^\s*(?:---+|___+|\*\*\*+)\s*$/.test(line)) {
+      flushParagraph();
+      closeList();
+      continue;
+    }
+
+    const heading = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      flushParagraph();
+      closeList();
+      const level = heading[1].length <= 2 ? 3 : 4;
+      output.push(`<h${level}>${formatInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const listItem = line.match(/^\s*(?:([-*+])|(\d+)[.)])\s+(.+)$/);
+    if (listItem) {
+      flushParagraph();
+      const nextListType = listItem[2] ? "ol" : "ul";
+      if (listType !== nextListType) {
+        closeList();
+        output.push(`<${nextListType}>`);
+        listType = nextListType;
+      }
+      output.push(`<li>${formatInlineMarkdown(listItem[3])}</li>`);
+      continue;
+    }
+    closeList();
+    paragraph.push(line);
+  }
+
+  if (codeLines) output.push(`<pre><code>${codeLines.join("\n")}</code></pre>`);
+  flushParagraph();
+  closeList();
+  return output.join("");
+}
+
 function formatBytes(bytes) {
   if (!bytes) return "0 KB";
   const units = ["B", "KB", "MB", "GB"];
@@ -423,7 +516,10 @@ function renderDashboard() {
 }
 
 function chatMessagesMarkup() {
-  return state.chatMessages.map((message) => `<div class="message ${message.role === "user" ? "user" : "assistant"}">${escapeHtml(message.text)}</div>`).join("");
+  return state.chatMessages.map((message) => {
+    const content = message.role === "assistant" ? renderMarkdown(message.text) : escapeHtml(message.text);
+    return `<div class="message ${message.role === "user" ? "user" : "assistant"}">${content}</div>`;
+  }).join("");
 }
 
 function renderStudy() {
@@ -684,7 +780,7 @@ async function sendChatMessage(text) {
       state.chatMessages.push({ role: "user", text: message });
       state.chatMessages.push({
         role: "assistant",
-        text: `${result.answer}\n\nSources: ${result.sources.map((source) => source.name).join(", ")}`,
+        text: `${result.answer}\n\n**Sources:** ${result.sources.map((source) => source.name).join(", ")}`,
       });
       state.chatMessages = state.chatMessages.slice(-30);
       recordHistory({ type: "chat", title: message.slice(0, 75) });

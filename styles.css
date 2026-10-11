@@ -230,9 +230,19 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .chat-welcome { max-width: 390px; padding: 13px 15px; border: 1px solid #efeff6; border-radius: 4px 13px 13px 13px; background: #fbfbfe; color: #696d82; font-size: 10px; line-height: 1.75; }
 .chat-welcome strong { color: #464a60; }
 .chat-time { margin: 0 0 9px 2px; color: #afb1bd; font-size: 8px; }
-.message { width: fit-content; max-width: 83%; margin: 14px 0; padding: 10px 13px; border-radius: 11px; color: #62667a; font-size: 10px; line-height: 1.7; white-space: pre-wrap; }
+.message { width: fit-content; max-width: 83%; margin: 14px 0; padding: 10px 13px; border-radius: 11px; color: #62667a; font-size: 12px; line-height: 1.7; white-space: pre-wrap; }
 .message.user { margin-left: auto; border-radius: 12px 4px 12px 12px; background: #756bd6; color: #fff; }
-.message.assistant { border: 1px solid #efeff6; border-radius: 4px 12px 12px 12px; background: #fbfbfe; }
+.message.assistant { width: 100%; max-width: 100%; border: 1px solid #efeff6; border-radius: 4px 12px 12px 12px; background: #fbfbfe; white-space: normal; }
+.message.assistant p { margin: 0 0 10px; }
+.message.assistant p:last-child { margin-bottom: 0; }
+.message.assistant h3, .message.assistant h4 { margin: 14px 0 7px; color: #454960; font-size: 14px; line-height: 1.4; }
+.message.assistant h3:first-child, .message.assistant h4:first-child { margin-top: 0; }
+.message.assistant ul, .message.assistant ol { margin: 6px 0 12px; padding-left: 22px; }
+.message.assistant li { margin: 4px 0; padding-left: 2px; }
+.message.assistant strong { color: #484b62; font-weight: 700; }
+.message.assistant pre { overflow-x: auto; margin: 9px 0; padding: 10px 12px; border-radius: 8px; background: #f0eff8; white-space: pre; }
+.message.assistant code { padding: 1px 4px; border-radius: 4px; background: #efedf8; font-family: Consolas, "Courier New", monospace; font-size: .92em; }
+.message.assistant pre code { padding: 0; background: transparent; }
 .attached-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 18px 9px; }
 .attached-chip { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid #ecebf8; border-radius: 7px; background: #faf9ff; color: #74718b; font-size: 8px; }
 .attached-chip button { padding: 0; border: 0; background: transparent; color: #9691b5; cursor: pointer; }
