@@ -243,6 +243,11 @@ button:focus-visible, input:focus-visible, a:focus-visible { outline: 3px solid 
 .message.assistant pre { overflow-x: auto; margin: 9px 0; padding: 10px 12px; border-radius: 8px; background: #f0eff8; white-space: pre; }
 .message.assistant code { padding: 1px 4px; border-radius: 4px; background: #efedf8; font-family: Consolas, "Courier New", monospace; font-size: .92em; }
 .message.assistant pre code { padding: 0; background: transparent; }
+.message.assistant .math { font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif; font-size: 1.08em; white-space: nowrap; }
+.message.assistant .math sub, .message.assistant .math sup { font-size: .76em; line-height: 0; }
+.message.assistant .math-fraction { display: inline-grid; vertical-align: middle; grid-template-rows: auto auto; margin: 0 2px; text-align: center; line-height: 1.15; }
+.message.assistant .math-fraction span:first-child { padding: 0 2px 1px; border-bottom: 1px solid currentColor; }
+.message.assistant .math-fraction span:last-child { padding-top: 1px; }
 .attached-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 18px 9px; }
 .attached-chip { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid #ecebf8; border-radius: 7px; background: #faf9ff; color: #74718b; font-size: 8px; }
 .attached-chip button { padding: 0; border: 0; background: transparent; color: #9691b5; cursor: pointer; }

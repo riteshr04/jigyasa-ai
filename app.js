@@ -164,18 +164,59 @@ function escapeHtml(value) {
 }
 
 function formatInlineMarkdown(value) {
-  const codeBlocks = [];
-  const withCode = value.replace(/`([^`\n]+)`/g, (_, code) => {
-    const token = `\u0000${codeBlocks.length}\u0000`;
-    codeBlocks.push(`<code>${code}</code>`);
+  const protectedContent = [];
+  const protect = (html) => {
+    const token = `\u0000${protectedContent.length}\u0000`;
+    protectedContent.push(html);
     return token;
+  };
+  const withCode = value.replace(/`([^`\n]+)`/g, (_, code) => {
+    return protect(`<code>${code}</code>`);
   });
-  return withCode
+  const withMath = withCode.replace(/\\\[([\s\S]*?)\\\]|\$\$([\s\S]*?)\$\$|\$([^$\n]+)\$|\\\((.+?)\\\)/g, (_, displayBracket, displayDollar, inlineDollar, inlineParen) => {
+    const expression = displayBracket ?? displayDollar ?? inlineDollar ?? inlineParen;
+    return protect(`<span class="math">${renderMathExpression(expression)}</span>`);
+  });
+  return withMath
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/__(.+?)__/g, "<strong>$1</strong>")
     .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
     .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>")
-    .replace(/\u0000(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)]);
+    .replace(/\u0000(\d+)\u0000/g, (_, index) => protectedContent[Number(index)]);
+}
+
+function renderMathExpression(expression) {
+  const symbols = {
+    alpha: "α", beta: "β", gamma: "γ", delta: "δ", epsilon: "ε", varepsilon: "ε",
+    zeta: "ζ", eta: "η", theta: "θ", vartheta: "θ", iota: "ι", kappa: "κ",
+    lambda: "λ", mu: "μ", nu: "ν", xi: "ξ", pi: "π", rho: "ρ", sigma: "σ",
+    tau: "τ", upsilon: "υ", phi: "φ", varphi: "φ", chi: "χ", psi: "ψ", omega: "ω",
+    Gamma: "Γ", Delta: "Δ", Theta: "Θ", Lambda: "Λ", Xi: "Ξ", Pi: "Π",
+    Sigma: "Σ", Phi: "Φ", Psi: "Ψ", Omega: "Ω",
+    to: "→", rightarrow: "→", longrightarrow: "⟶", leftarrow: "←", gets: "←",
+    leftrightarrow: "↔", mapsto: "↦", implies: "⇒", iff: "⇔",
+    times: "×", cdot: "·", pm: "±", mp: "∓", le: "≤", leq: "≤", ge: "≥", geq: "≥",
+    neq: "≠", ne: "≠", approx: "≈", equiv: "≡", in: "∈", notin: "∉",
+    subset: "⊂", subseteq: "⊆", supset: "⊃", supseteq: "⊇", cup: "∪", cap: "∩",
+    emptyset: "∅", infinity: "∞", partial: "∂", nabla: "∇", forall: "∀",
+    exists: "∃", sum: "∑", prod: "∏", int: "∫",
+  };
+  const subSupContent = (content) => content
+    .replace(/\\([A-Za-z]+)/g, (match, command) => symbols[command] ?? match)
+    .replace(/[{}]/g, "");
+
+  return expression
+    .replace(/\\(?:left|right)\b/g, "")
+    .replace(/\\(?:,|;|!|:|quad|qquad)\s*/g, " ")
+    .replace(/\\text\{([^{}]*)\}/g, "$1")
+    .replace(/\\frac\{([^{}]+)\}\{([^{}]+)\}/g, '<span class="math-fraction"><span>$1</span><span>$2</span></span>')
+    .replace(/\\sqrt\{([^{}]+)\}/g, "√($1)")
+    .replace(/_\{([^{}]+)\}|_([A-Za-z0-9+-])/g, (_, group, character) => `<sub>${subSupContent(group ?? character)}</sub>`)
+    .replace(/\^\{([^{}]+)\}|\^([A-Za-z0-9+-])/g, (_, group, character) => `<sup>${subSupContent(group ?? character)}</sup>`)
+    .replace(/\\([A-Za-z]+)/g, (match, command) => symbols[command] ?? match)
+    .replace(/[{}]/g, "")
+    .replace(/\\ /g, " ")
+    .trim();
 }
 
 function renderMarkdown(text) {
